@@ -6,19 +6,20 @@ import android.hardware.*;
 import android.app.Activity;
 import android.media.*;
 import android.os.Bundle;
-import android.os.Handler;
 import android.util.Log;
 import android.widget.*;
 
 public class MyActivity extends Activity {
 
     //snap settings
+    private final int trackDuration = 500;             //msec
+    private final int snapDuration = 20;          //msec
+    private final int sampleRate = 8000;          //frame per second
+    private final int numSamples = trackDuration * sampleRate/1000;
+    private final double freqOfTone = 3600;       //frequency of snap in hz
 
-    Handler handler = new Handler();
-    Random rand = new Random();
-    volatile boolean doNoise = true;
-
-    volatile boolean isFinished = true;
+    private final Random rand = new Random();
+    private volatile boolean doNoise = true;//do snap noise or not
 
     //visualization
     TextView digitView;
@@ -26,7 +27,7 @@ public class MyActivity extends Activity {
 
     //update timer
     Timer updateTimer;              //updates all data
-    int updatePeriod = 50;
+    private final int updatePeriod = 50;
 
     //radiation data
     SensorManager sensorManager;
@@ -50,6 +51,14 @@ public class MyActivity extends Activity {
         }
 
     };
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        sensorManager.unregisterListener(listener);
+        updateTimer.cancel();
+        doNoise = false;
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -91,34 +100,8 @@ public class MyActivity extends Activity {
             @Override
             public void run() {
                 while(doNoise) {
-                    int duration = 500; // msec
-                    int snapDuration = 20;
-                    int sampleRate = 8000;
-                    int numSamples = duration * sampleRate/1000;
-                    byte generatedSnd[] = new byte[numSamples*2];
-                    double sample[] = new double[numSamples];
-                    double freqOfTone = 3600; // hz
 
-                    // fill out the array
-                    int snapAmount = (int) ((radiation + 2) * (radiation + 1)) / 6 + rand.nextInt(2) ;
-                    for (int i = 0; i < snapAmount; ++i) {
-                        int pos = rand.nextInt(numSamples-snapDuration);
-                        for(int j = 0; j < snapDuration; j++) {
-                            sample[pos+j] = 0.85 * Math.sin(2 * Math.PI * (pos+j) / (sampleRate / freqOfTone));
-                        }
-                    }
-
-                    // convert to 16 bit pcm sound array
-                    // assumes the sample buffer is normalised.
-                    int idx = 0;
-                    for (final double dVal : sample) {
-                        // scale to maximum amplitude
-                        final short val = (short) ((dVal * 32767));
-                        // in 16 bit wav PCM, first byte is the low order byte
-                        generatedSnd[idx++] = (byte) (val & 0x00ff);
-                        generatedSnd[idx++] = (byte) ((val & 0xff00) >>> 8);
-
-                    }
+                    final byte[] generatedSnd = generateSnapAudioTrack();
 
                     AudioTrack snapsTrack = new AudioTrack(AudioManager.STREAM_MUSIC,
                             sampleRate, AudioFormat.CHANNEL_OUT_MONO,
@@ -133,7 +116,6 @@ public class MyActivity extends Activity {
                      * (not work in android 4.4.2 and some else versions, strange bag).
                      */
                     while((snapsTrack.getPlaybackHeadPosition() < numSamples) && doNoise){
-
                         Log.d("snapPlayer", "waiting..." +snapsTrack.getPlaybackHeadPosition() );
                         try {
                             Thread.sleep(20);
@@ -149,6 +131,35 @@ public class MyActivity extends Activity {
         doNoise = true;
         noisePlayer.start();
 
+    }
+
+    private byte[] generateSnapAudioTrack(){
+
+        byte generatedSnd[] = new byte[numSamples*2];
+        double sample[] = new double[numSamples];
+
+
+        // fill out the array
+        int snapAmount = (int) ((radiation + 2) * (radiation + 1)) / 6 + rand.nextInt(2) ;
+        for (int i = 0; i < snapAmount; ++i) {
+            int pos = rand.nextInt(numSamples-snapDuration);
+            for(int j = 0; j < snapDuration; j++) {
+                sample[pos+j] = 0.85 * Math.sin(2 * Math.PI * (pos+j) / (sampleRate / freqOfTone));
+            }
+        }
+
+        // convert to 16 bit pcm sound array
+        // assumes the sample buffer is normalised.
+        int idx = 0;
+        for (final double dVal : sample) {
+            // scale to maximum amplitude
+            final short val = (short) ((dVal * 32767));
+            // in 16 bit wav PCM, first byte is the low order byte
+            generatedSnd[idx++] = (byte) (val & 0x00ff);
+            generatedSnd[idx++] = (byte) ((val & 0xff00) >>> 8);
+
+        }
+        return generatedSnd;
     }
 
 
