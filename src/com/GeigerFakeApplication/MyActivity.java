@@ -7,9 +7,10 @@ import android.app.Activity;
 import android.media.*;
 import android.os.Bundle;
 import android.util.Log;
+import android.view.View;
 import android.widget.*;
 
-public class MyActivity extends Activity {
+public class MyActivity extends Activity implements View.OnClickListener {
 
     //snap settings
     private final int trackDuration = 500;             //msec
@@ -17,15 +18,15 @@ public class MyActivity extends Activity {
     private final int sampleRate = 8000;          //frame per second
     private final int numSamples = trackDuration * sampleRate/1000;
     private final double freqOfTone = 3600;       //frequency of snap in hz
-
     private final Random rand = new Random();
     private volatile boolean doNoise = true;//do snap noise or not
 
     //visualization
     TextView digitView;
     ImageView needleView;           //needle of analog display
+    ImageView soundStateView;
 
-    //update timer
+    //timer of update
     Timer updateTimer;              //updates all data
     private final int updatePeriod = 50;
 
@@ -57,7 +58,7 @@ public class MyActivity extends Activity {
         super.onPause();
         sensorManager.unregisterListener(listener);
         updateTimer.cancel();
-        doNoise = false;
+        disableNoise();
     }
 
     @Override
@@ -66,8 +67,8 @@ public class MyActivity extends Activity {
         setContentView(R.layout.main);
 
         needleView = (ImageView) findViewById(R.id.needleView);
-
         digitView = (TextView) findViewById(R.id.digitView);
+        soundStateView = (ImageView) findViewById(R.id.soundStateView);
 
         sensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
         sensorAcceleration = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
@@ -96,41 +97,7 @@ public class MyActivity extends Activity {
         };
         updateTimer.schedule(updateInfoTask, 1000, updatePeriod);
 
-        Thread noisePlayer = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                while(doNoise) {
-
-                    final byte[] generatedSnd = generateSnapAudioTrack();
-
-                    AudioTrack snapsTrack = new AudioTrack(AudioManager.STREAM_MUSIC,
-                            sampleRate, AudioFormat.CHANNEL_OUT_MONO,
-                            AudioFormat.ENCODING_PCM_16BIT, generatedSnd.length,
-                            AudioTrack.MODE_STATIC);
-                    snapsTrack.write(generatedSnd, 0, generatedSnd.length);
-
-                    snapsTrack.play();
-
-                    /* Wait while track is playing.
-                     * Strange way coz onMarkerReached is useless
-                     * (not work in android 4.4.2 and some else versions, strange bag).
-                     */
-                    while((snapsTrack.getPlaybackHeadPosition() < numSamples) && doNoise){
-                        Log.d("snapPlayer", "waiting..." +snapsTrack.getPlaybackHeadPosition() );
-                        try {
-                            Thread.sleep(20);
-                        } catch (InterruptedException e) {
-                            e.printStackTrace();
-                        }
-                    }
-                    snapsTrack.release();
-                }
-            }
-        });
-
-        doNoise = true;
-        noisePlayer.start();
-
+        enableNoise();
     }
 
     private byte[] generateSnapAudioTrack(){
@@ -181,6 +148,59 @@ public class MyActivity extends Activity {
         }
 
         return newRadiation > 6 ? 6 : newRadiation;  //6 is max value of this Geiger pseudoCounter
+    }
+
+    @Override
+    public void onClick(View v){
+        if(!doNoise){
+            soundStateView.setBackgroundResource(R.drawable.sound_on_icon);
+            enableNoise();
+        }
+        else{
+            soundStateView.setBackgroundResource(R.drawable.sound_off_icon);
+            disableNoise();
+        }
+    }
+
+    void enableNoise(){
+        Thread noisePlayer = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                while(doNoise) {
+
+                    final byte[] generatedSnd = generateSnapAudioTrack();
+
+                    AudioTrack snapsTrack = new AudioTrack(AudioManager.STREAM_MUSIC,
+                            sampleRate, AudioFormat.CHANNEL_OUT_MONO,
+                            AudioFormat.ENCODING_PCM_16BIT, generatedSnd.length,
+                            AudioTrack.MODE_STATIC);
+                    snapsTrack.write(generatedSnd, 0, generatedSnd.length);
+
+                    snapsTrack.play();
+
+                    /* Wait while track is playing.
+                     * Strange way coz onMarkerReached is useless
+                     * (not work in android 4.4.2 and some else versions, strange bag).
+                     */
+                    while((snapsTrack.getPlaybackHeadPosition() < numSamples) && doNoise){
+                        Log.d("snapPlayer", "waiting..." +snapsTrack.getPlaybackHeadPosition() );
+                        try {
+                            Thread.sleep(20);
+                        } catch (InterruptedException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                    snapsTrack.release();
+                }
+            }
+        });
+
+        doNoise = true;
+        noisePlayer.start();
+    }
+
+    void disableNoise(){
+        doNoise = false;
     }
 
 }
